@@ -61,6 +61,7 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
    *
    *  - find the number at step n - 1
    *  - the next number has a maximum value x for one of a, b, c == log2(previousNumber) + 1
+   *                        and minimum value x for one of a, b, c == log5(previousNumber)
    *  - calculate values among all the possible triplets and sort them
    *  - take the minimum value that is > to the previous number
    *
@@ -69,7 +70,7 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
     if (n <= 0) throw new IllegalArgumentException(s"$n must be positive")
     else if (n == 1) ((0, 0, 0), 1)
     else {
-      val (_, previousNumber) = find(n - 1)
+      val ((a, b, c), previousNumber) = find(n - 1)
       val maximumValueForAbc = log2(previousNumber) + 1
       val minimumValueForAbc = log5(previousNumber)
 
