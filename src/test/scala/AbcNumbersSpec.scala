@@ -70,7 +70,7 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
     if (n <= 0) throw new IllegalArgumentException(s"$n must be positive")
     else if (n == 1) ((0, 0, 0), 1)
     else {
-      val ((a, b, c), previousNumber) = find(n - 1)
+      val (_, previousNumber) = find(n - 1)
       val maximumValueForAbc = log2(previousNumber) + 1
       val minimumValueForAbc = log5(previousNumber)
 
