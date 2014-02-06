@@ -5,17 +5,20 @@ import org.specs2.matcher.DataTables
 import scala.math._
 import scalaz._
 import Scalaz._
-import Memo._
 import org.specs2.main.CommandLineArguments
 
 class AbcNumbersSpec extends Specification with DataTables with CommandLineArguments { def is = s2"""
 
   2^a * 3^b * 5^c
 
-  10.000th value                          $tenThousand
+  first values              $firstValues
+  10.000th value            $tenThousand
 
 """
 
+  /**
+   * TESTS
+   */
   def firstValues = {
     "n"   | "a"   | "b"  | "c"   | "number" |>
     1     ! 0     ! 0    ! 0     ! 1        |
@@ -33,18 +36,37 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
 
   def tenThousand = find(arguments.commandLine.int("n").getOrElse(10000)) must_== ((5, 10, 16), abcNumber((5, 10, 16)))
 
-  /** find possible combinations */
+  /**
+   * types definitions
+   */
   type Triplet = (Int, Int, Int)
-  type Pair    = (Int, Int)
 
   /**
-   * find number at step n:
+   * Main algorithm
    *
-   *  - find the number at step n - 1
-   *  - the next number has a maximum value x for one of a, b, c == log2(previousNumber) + 1
-   *                        and minimum value x for one of a, b, c == log5(previousNumber)
-   *  - calculate values among all the possible triplets and sort them
-   *  - take the minimum value that is > to the previous number
+   * find the nth number:
+   *
+   *  - find the number nth - 1 (previousNumber)
+   *
+   *  - we search for the coefficients (a, b, c) of number, by searching in a subset of all possible coefficients
+   *
+   *  knowing that:
+   *     - nth number = 2^a*3^b*5^c
+   *     - nth number > previousNumber
+   *
+   *  We can bound the search by adding those inequalities
+   *     - a + b + c <= log2(previousNumber) + 1 (in case the new number is a power of 2, the sum of a + b + c will be maximal)
+   *     - a + b + c >= log5(previousNumber) + 1 (in case the new number is a power of 5, the sum of a + b + c will be minimal)
+   *     - b <= log3(previousNumber) + 1 if that helps
+   *
+   *  Then instead of searching the coefficients so that:
+   *    2^a*3^b*5^c is minimum and
+   *    2^a*3^b*5^c > previousNumber
+   *
+   *  We look for the coefficients that minimize:
+   *    a*log2 + b*log3 + clog5 and
+   *    a*log2 + b*log3 + clog5 > log(previousNumber) - because log is monotonic
+   *
    */
   def find(n: Int): (Triplet, BigInt) = {
     if (n <= 0) throw new IllegalArgumentException(s"$n must be positive")
@@ -60,73 +82,142 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
         val maximumValueForAbc = log2(previousNumber) + 1
         val minimumValueForAbc = log5(previousNumber) + 1
         val maximumValueForB   = log3(previousNumber) + 1
-        val previousLog = log(previousNumber.toDouble + 0.5)
+        val previousLog        = log(previousNumber.toDouble + 0.5)
 
         val abc = findBestAbc(minimumValueForAbc, maximumValueForB, maximumValueForAbc, previousLog)
         solution = (abc, abcNumber(abc))
-        if (i % 100 == 0) solution.pp(s"current result for $i")
+        //if (i % 100 == 0) solution.pp(s"current result for $i")
         i = i + 1
       }
       solution
     }
   }
 
+  /**
+   * branch and bound algorithm to find (a, b, c) to miminize the a*log2 + b*log3 + c*log5 function ('abcLog')
+   *
+   * so that abcLog(a, b, c) > minLog and minSum <= a + b + c <= maxSum (and b <= maxB)
+   *
+   *  1. we start with a list of "Nodes" representing possible sets of values for a, b and c
+   *
+   *  2. we evaluate the minimum and maximum possible values for the abcLog function over each node
+   *
+   *  3. we update the best found minimum for the abcLog function
+   *
+   *  4. we remove all the nodes which we know will not be better or not satisfy the > minLog constraint (pruning)
+   *
+   *  5. we split the remaining ranges into smaller ones (the "branch" method) and we iterate until one solution is left
+   *
+   */
   def findBestAbc(minSum: Int, maxB: Int, maxSum: Int, minLog: Double): Triplet = {
 
+    /**
+     * branching method from a given "node" in the search tree
+     *
+     *  - if any range of the Node can be split (hence the checks for size == 1), we split it
+     *  - we always split the biggest range
+     *  - the split method (implemented on Node) "cuts" a given range (on 'a' values, 'b' values or 'c' values) into
+     *    2 equal ranges: for example [0, 1, 2, 3] is splitted into [0, 1] and [2, 3]
+     *
+     * we remove from the branching any node having ranges which offer no possible combinations so that the
+     * sum of coefficients is between minSum and maxSum
+     */
     def branch(node: Node): Seq[Node] = {
       val branched =
         if (node.aRange.size == 1) {
           if (node.bRange.size == 1) {
             if (node.cRange.size == 1) Seq(node)
-            else Seq(node.takeHalfc, node.dropHalfc)
+            else node.splitc
           } else
-            if (node.bRange.size >= node.cRange.size) Seq(node.takeHalfb, node.dropHalfb)
-            else                                      Seq(node.takeHalfc, node.dropHalfc)
+            if (node.bRange.size >= node.cRange.size) node.splitb
+            else                                      node.splitc
         } else
-          if (node.aRange.size >= node.bRange.size && node.aRange.size >= node.cRange.size) Seq(node.takeHalfa, node.dropHalfa)
-          else if (node.bRange.size >= node.aRange.size && node.bRange.size >= node.cRange.size) Seq(node.takeHalfb, node.dropHalfb)
-          else Seq(node.takeHalfc, node.dropHalfc)
+          if (node.aRange.size >= node.bRange.size && node.aRange.size >= node.cRange.size) node.splita
+          else if (node.bRange.size >= node.aRange.size && node.bRange.size >= node.cRange.size) node.splitb
+          else node.splitc
 
       branched.filter(n => n.isSumBetween(minSum, maxSum) && n.bRange.head <= maxB)
     }
 
+    /**
+     * initialize values
+     */
+    // the first node, root of the searc true
     val initialRange = 0 to maxSum
     val start = Node(initialRange, initialRange, initialRange)
 
+    // at first the bestLog is not found (set to infinite)
     var bestLog  = Double.MaxValue
+    // we branch once
     var nodes = Seq(start).flatMap(branch)
 
+    // we search until there's only one possibility left
     while (nodes.size > 1) {
+      // compute the bounds on each node
       val bounds = nodes.map(n => (n, n.bound))
+
+      // compute the minimum possible value on each node so that this value is above the required minimum
+      // this is the new best objective
       val minLogs = bounds.map { case (n, (min, max)) => min }.filter(_ >= minLog)
       if (!minLogs.isEmpty) bestLog = minLogs.min
 
+      // remove all nodes having a minimum bound already superior to the best solution
+      // or a maximum bound which is below the required minimum
       val pruned = bounds.filter { case (n, (min, max)) => min <= bestLog && max >= minLog }.map(_._1)
+      // branch again on each node (flatMap applies a function A => Seq[A] to each element and 'flatten' the results into one
+      // sequence)
       nodes = pruned.flatMap(branch)
     }
 
+    // return the remaining value
     nodes.head.triplet
   }
 
+  /**
+   * A node encapsulates sets of values for the coefficients (a, b, c):
+   *   - a "range" for a
+   *   - a "range" for b
+   *   - a "range" for c
+   *
+   * and a few utility functions
+   */
+  case class Node(aRange: Seq[Int], bRange: Seq[Int], cRange: Seq[Int]) {
+    def splita = {
+      val (s1, s2) = splitRange(aRange)
+      Seq(copy(aRange = s1), copy(aRange = s2))
+    }
+    def splitb = {
+      val (s1, s2) = splitRange(bRange)
+      Seq(copy(bRange = s1), copy(bRange = s2))
+    }
+    def splitc = {
+      val (s1, s2) = splitRange(cRange)
+      Seq(copy(cRange = s1), copy(cRange = s2))
+    }
 
-  case class Node(aRange: Range, bRange: Range, cRange: Range) {
-    def takeHalfa = copy(aRange = aRange.take(aRange.size / 2))
-    def takeHalfb = copy(bRange = bRange.take(bRange.size / 2))
-    def takeHalfc = copy(cRange = cRange.take(cRange.size / 2))
-
-    def dropHalfa = copy(aRange = aRange.drop(aRange.size / 2))
-    def dropHalfb = copy(bRange = bRange.drop(bRange.size / 2))
-    def dropHalfc = copy(cRange = cRange.drop(cRange.size / 2))
+    /** split a range into 2 */
+    def splitRange(range: Seq[Int]): (Seq[Int], Seq[Int]) =
+      (range.take(range.size / 2), range.drop(range.size / 2))
 
     def minAbc = (aRange.head, bRange.head, cRange.head)
+
     def maxAbc = (aRange.last, bRange.last, cRange.last)
 
+    /** @return the min and max possible values of the abcLog function for this Node */
     def bound = (abcLog(minAbc), abcLog(maxAbc))
 
+    /**
+     * @return true if there is a possible combination of coefficients
+     *         where the sum of coefficients is between min and max
+     */
     def isSumBetween(min: Int, max: Int) =
+        // if the sum of the minimum coefficients ('head' of each range) is > max or
+        // if the sum of the maximum coefficients ('last' of each range) is < min
+        // then we know that the Node needs to be excluded
       !(Seq(aRange.head, bRange.head, cRange.head).sum > max ||
         Seq(aRange.last, bRange.last, cRange.last).sum < min)
 
+    /** return the 'minimum' triplet */
     def triplet = minAbc
   }
 
