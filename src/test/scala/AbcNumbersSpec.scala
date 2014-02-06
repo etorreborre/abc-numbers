@@ -7,34 +7,14 @@ import scalaz._
 import Scalaz._
 import Memo._
 import org.specs2.main.CommandLineArguments
-import scala.annotation.tailrec
 
 class AbcNumbersSpec extends Specification with DataTables with CommandLineArguments { def is = s2"""
 
   2^a * 3^b * 5^c
 
-  find all the triplets which sum is == n $triplets
-  find the first values                   $firstValues
   10.000th value                          $tenThousand
 
-  find candidates $candidates
-
-  newThing $newThing
 """
-
-  def newThing = {
-    findNext(1000).pp
-    ok
-
-  }
-
-  def triplets = {
-    tripletsEqualTo(3).sorted must_== Seq(
-      (1, 1, 1),
-      (2, 0, 1), (2, 1, 0), (0, 2, 1), (1, 2, 0), (0, 1, 2), (1, 0, 2),
-      (3, 0, 0), (0, 3, 0), (0, 0, 3)
-    ).sorted
-  }
 
   def firstValues = {
     "n"   | "a"   | "b"  | "c"   | "number" |>
@@ -53,127 +33,9 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
 
   def tenThousand = find(arguments.commandLine.int("n").getOrElse(10000)) must_== ((5, 10, 16), abcNumber((5, 10, 16)))
 
-  def candidates = {
-    val n = arguments.commandLine.int("n").getOrElse(10)
-    findAbcNumber(n).pp
-    find(n).pp("is correct")
-    ok
-  }
-
   /** find possible combinations */
   type Triplet = (Int, Int, Int)
   type Pair    = (Int, Int)
-
-  def tripletsEqualTo = mutableHashMapMemo((n: Int) =>
-    (0 to n).flatMap(i => pairsEqualTo(n - i).flatMap(pair => permutations(i, pair))).toSet.toSeq)
-
-  def pairsEqualTo = mutableHashMapMemo((n: Int) =>
-    (0 to n).map(i => (i, n - i)))
-
-  def permutations(n: Int, pair: Pair): Seq[Triplet] =
-    Seq(n, pair._1, pair._2).permutations.map { case a :: b :: c :: _ => (a, b, c) }.toSeq
-
-  /*
-
-  2^a * 3^b * 5^c + 2^a1 * 3^b1 * 5^c1
-
-  log(fn) = alog2 + blog3 + clog5
-
-  log2 >= log(fn)-log(prev) > 0
-  alog2 + blog3 + clog5 > log(prev)
-
-  a >= 0
-  a <= abs(bprev + cprev - aprev)
-
-  blog3 + clog5 > C
-
-  c = round(C - blog3)/ log5
-
-  log(n)   = a * log(2) + b * log(3) + c * log(5)
-  log(n+1) = xlog2 + ylog3 + zlog5
-
-  log(n+1/n) = (x-a)log2 + (y-b)log3 + (z-c)log5
-
-  log(2*n/2) = log2 + log(n/2)
-  log(n/2) = (a - 1) * log(2) + blog3 + clog5
-
-  log(n+1) min && log(n+1) > log(n)
-
-  a == 0, b > roundup(min - clog5)/log2
-  a = roundup((min - blog3 - clog5) / log2)
-
-
-   */
-  def findNext(n: Int): Seq[BigInt] = {
-    def isDiv2(n: BigInt) = Seq('0', '2', '4', '6', '8').exists(_ == n.toString.last)
-    def isDiv3(n: BigInt): Boolean = {
-      val sum = n.toString.split("").filter(_.nonEmpty).map(_.toInt).sum
-      sum == 3 || (n.toString.size >=2 && isDiv3(sum))
-    }
-    def isDiv5(n: BigInt) = Seq('0', '5').exists(_ == n.toString.last)
-
-    if (n == 1) Seq(1)
-    else {
-      val previous = findNext(n - 1)
-      s"previous is $previous"
-      var trying = previous.last + BigInt(1)
-      var found = false
-      while (!found) {
-        s"trying $trying".pp
-        found =
-          (isDiv2(trying) && previous.contains(trying / 2)) ||
-            (isDiv3(trying) && previous.contains(trying / 3)) ||
-            (isDiv5(trying) && previous.contains(trying / 5))
-        if (!found) trying = trying + BigInt(1)
-      }
-      previous :+ trying
-    }
-  }
-
-  /**
-   * find number at step n:
-   *
-   *  - find the number at step n - 1
-   *  2^x * 3^y * 5^z > 1
-   *  abs(x) <= a, abs(y) <= b, abs(z) <= c
-   *  abs(x + y + z) < abs(minValue)
-   */
-  def findAbcNumber(n: Int): (Triplet, BigInt) = {
-    def range(x: Int, y: Int) = (- x to y).toList
-    def findMin(a: Int, b: Int, c: Int, maxSum: Int): Triplet = {
-      (range(a, a + maxSum) |@| range(b, b + maxSum) |@| range(c, c + maxSum))((_,_,_)).
-        filter { case (x, y, z) => abs(x + y + z) <= maxSum }.
-        map    { case t => (t, abcDouble(t)) }.
-        filter { _._2 > 1.0 }.toList.minBy(_._2)._1
-    }
-
-    def abcNumbers: Stream[(Triplet, BigInt)] = {
-      var n = 0
-      Stream.iterate(((0, 0, 0), BigInt(1))) { case ((a, b, c), number) =>
-        val maximumValueForAbc = log2(number) + 1
-        val (x, y, z) = findMin(a, b, c, maximumValueForAbc)
-        val triplet = (a + x, b + y, c + z)
-        val (tw, th, fi) = triplet
-        n = n + 1
-//        if (tw != 0 && th != 0 && fi != 0) "divisible par 30".pp
-//        if (tw == 0 && th != 0 && fi != 0) "divisible par 15".pp
-//        if (tw == 0 && th == 0 && fi != 0) "divisible par 5".pp
-//        if (tw != 0 && th != 0 && fi == 0) "divisible par 6".pp
-//        if (tw == 0 && th != 0 && fi == 0) "divisible par 3".pp
-//        if (tw != 0 && th == 0 && fi != 0) "divisible par 10".pp
-//        if (tw != 0 && th == 0 && fi == 0) "divisible par 2".pp
-
-        val abc = abcNumber(triplet)
-        //(min, max).pp("min, max for abc")
-        //        (log2(abc), log3(abc), log5(abc)).pp(s"logs for $abc")
-        s"interim result for ${n+1} ${(triplet, abc)} ".pp
-        (triplet, abc)
-      }
-    }
-    if (n <= 0) throw new IllegalArgumentException(s"$n must be positive")
-    else abcNumbers(n - 1).pp(s"result for $n")
-  }
-
 
   /**
    * find number at step n:
@@ -268,14 +130,6 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
     def triplet = minAbc
   }
 
-
-  def valuesWhereTripletBetween: (Int, Int, Double) => Seq[(Triplet, Double)] = { (min: Int, max: Int, maxLog: Double) =>
-    if (max < min) Seq()
-    else           (valuesWhereTripletEqualTo(max).filterNot(_._2 < maxLog).filterNot(_._2 > maxLog+log235) ++ valuesWhereTripletBetween(min, max - 1, maxLog)).sortBy(_._2)
-  }
-
-  def valuesWhereTripletEqualTo = mutableHashMapMemo((n: Int) =>
-    tripletsEqualTo(n).map(triplet => (triplet, abcLog(triplet))))
 
   /**
    * math functions
