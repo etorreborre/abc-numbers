@@ -8,11 +8,27 @@ import Scalaz._
 import Memo._
 import org.specs2.main.CommandLineArguments
 
-class AbcNumbersSpec extends Specification with DataTables with CommandLineArguments { def is = s2"""
+class AbcNumbersSpec extends Specification with DataTables with CommandLineArguments { def is = s2""" $sequential
 
   2^a * 3^b * 5^c
 
   first values              $firstValues
+
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
+  10.000th value            $tenThousand
   10.000th value            $tenThousand
 
 """
@@ -35,7 +51,7 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
     }
   }
 
-  def tenThousand = find(arguments.commandLine.int("n").getOrElse(10000)) must_== abcNumber((5, 10, 16))
+  def tenThousand = findFunctional(arguments.commandLine.int("n").getOrElse(10000)) must_== abcNumber((5, 10, 16))
 
   /**
    * find the nth number of the form 2^a* 3^b * 5^c
@@ -72,7 +88,44 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
     }
 
     // return the first n numbers
-    foundNumbers.sorted.drop(n - 1).head
+    foundNumbers.sorted.apply(n - 1)
+  }
+
+  /**
+   * find the nth number of the form 2^a* 3^b * 5^c
+   * using no variables
+   */
+  def findFunctional(n: Int): BigInt = {
+    if (n <= 0) throw new IllegalArgumentException(s"$n must be positive")
+
+    // generate number of the form 2^a* 3^b * 5^c
+    // keeping track of the maximum and of the current sum of coefficients
+    lazy val generateNumbers =
+      Stream.iterate((BigInt(0), 0, Vector[BigInt]())) { case (max, s, nbs) =>
+        val (newMax, newNumbers) =
+          tripletsOfSum(s).foldLeft((max, nbs)) { case ((max1, nbs1), triplet) =>
+            val number = abcNumber(triplet)
+            (if (number > max1) number else max1, nbs1 :+ number)
+          }
+
+        (newMax, s + 1, newNumbers)
+      }
+
+    // take the first list of numbers having at least n numbers
+    val (_, n2) = generateNumbers.span { case (_, _, nbs) => nbs.size < n }
+    val (maximum, sum, numbers) = n2.head
+
+    // we need to find more numbers but we stop adding them when the sum of the coefficients 
+    // will only create numbers bigger than the maximum
+    // maxSum > log(maximum)/log(2)
+    val maxSum = log2(maximum) + 1
+
+    val moreNumbers = (sum to maxSum).foldLeft(numbers) { case (seq, s) =>
+      tripletsOfSum(s).foldLeft(seq) { (seq1, t) => seq1 :+ abcNumber(t) }
+    }
+
+    // take the nth number
+    moreNumbers.sorted.apply(n - 1)
   }
 
   /** @return all the triplets having a sum == s */
@@ -83,6 +136,7 @@ class AbcNumbersSpec extends Specification with DataTables with CommandLineArgum
   /**
    * Math functions
    */
+  def log2(n: BigInt): Int = math.floor(math.log(n.toDouble) / math.log(2)).toInt
   val abcNumber: Triplet => BigInt =  { case (a, b, c) => BigInt(2).pow(a) * BigInt(3).pow(b) * BigInt(5).pow(c) }
 
   /**
